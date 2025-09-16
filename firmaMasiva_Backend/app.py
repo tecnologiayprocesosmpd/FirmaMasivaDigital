@@ -4,9 +4,53 @@ import threading
 import os
 import tempfile # Importa el módulo para manejar archivos temporales
 from automation_script import firmador_automation
+import pyodbc
+
 
 app = Flask(__name__)
 CORS(app)
+
+# AGREGAR CONFIGURACIÓN BD
+SERVER = 'DESKTOP-4PV1O46\\SQLEXPRESS'
+DATABASE = 'Firmas'
+DRIVER = '{ODBC Driver 17 for SQL Server}'
+
+# AGREGAR FUNCIÓN DE VALIDACIÓN
+def validar_cuil_y_obtener_ruta(cuil):
+    """
+    Valida si el CUIL existe y devuelve la ruta de descarga.
+    Retorna la ruta si existe, None si no existe.
+    """
+    conn = None
+    try:
+        connection_string = (
+            f'DRIVER={DRIVER};'
+            f'SERVER={SERVER};'
+            f'DATABASE={DATABASE};'
+            f'Trusted_Connection=yes;'
+        )
+        conn = pyodbc.connect(connection_string)
+        cursor = conn.cursor()
+        
+        print(f"Validando CUIL: '{cuil}'")
+        cursor.execute("SELECT path FROM dbo.signature WHERE cuil = ?", (cuil,))
+        result = cursor.fetchone()
+        
+        if result:
+            ruta = result[0]
+            print(f"CUIL encontrado. Ruta: {ruta}")
+            return ruta
+        else:
+            print("CUIL no encontrado")
+            return None
+            
+    except pyodbc.Error as e:
+        print(f"Error de Base de Datos: {e}")
+        return None
+        
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/firmar', methods=['POST'])
 def handle_firmar_request():
@@ -23,7 +67,20 @@ def handle_firmar_request():
         if not all([cuit, password, pin, otp_code, uploaded_files]):
             return jsonify({"message": "Faltan datos o archivos requeridos."}), 400
 
-        # Crea un directorio temporal para guardar los archivos
+         # AGREGAR VALIDACIÓN CUIL AQUÍ
+        cuit_limpio = cuit.replace('-', '')
+        
+        if not cuit_limpio.isdigit() or len(cuit_limpio) != 11:
+            return jsonify({"message": "El CUIL debe ser de 11 dígitos numéricos."}), 400
+        
+        download_path = validar_cuil_y_obtener_ruta(cuit_limpio)
+        if download_path is None:
+            return jsonify({"message": "Usted no tiene registrado el CUIL en el sistema."}), 403
+
+        print(f"CUIL {cuit_limpio} autorizado. Ruta de descarga: {download_path}")
+
+
+        # Resto de tu código igual...
         temp_dir = tempfile.mkdtemp()
         file_paths = []
         for file in uploaded_files:
@@ -31,10 +88,9 @@ def handle_firmar_request():
             file.save(file_path)
             file_paths.append(file_path)
 
-        # Inicia la automatización en un hilo separado
         thread = threading.Thread(
             target=firmador_automation,
-            args=(cuit, password, otp_code, pin, file_paths)
+            args=(cuit, password, otp_code, pin, file_paths, download_path)
         )
         thread.start()
         

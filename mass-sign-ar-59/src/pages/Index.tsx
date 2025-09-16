@@ -29,10 +29,15 @@ const Index = () => {
   const {
     toast
   } = useToast();
-  const validateCUIL = (cuil: string): boolean => {
-    const numeric = cuil.replace(/\D/g, '');
-    return numeric.length === 11;
+  
+  const cleanCUIL = (cuil: string): string => {
+    return cuil.replace(/\D/g, '');
   };
+  const validateCUIL = (cuil: string): boolean => {
+   const cleaned=cleanCUIL(cuil);
+    return cleaned.length==11;
+    }
+
   const isFormValid = () => {
     return files.length > 0 && validateCUIL(credentials.cuil) && credentials.password.length >= 1 && credentials.pin.length >= 1;
   };
@@ -73,6 +78,7 @@ const Index = () => {
     setValidationErrors({});
     setShowOTPModal(true);
   };
+
  const handleFinalSign = async (otp: string) => {
     setIsProcessing(true);
 
