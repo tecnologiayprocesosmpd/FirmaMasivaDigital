@@ -72,7 +72,7 @@ def firmador_automation_wrapper(cuit, password, code, pin, file_paths, session_i
         firmador_automation.progress_callback = progress_callback
         
         # LLAMAR A TU FUNCIÓN ORIGINAL
-        firmador_automation(cuit, password, code, pin, file_paths)
+        firmador_automation(cuit, password, code, pin, file_paths, user_data['path_carpetas'])
         
         update_progress(session_id, len(file_paths), len(file_paths), '', f'Proceso completado exitosamente. Archivos guardados en {user_data["path_carpetas"]}', 'completed')
         
