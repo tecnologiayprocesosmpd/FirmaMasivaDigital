@@ -133,6 +133,12 @@ def firmador_automation(cuit, password, code, pin, files_to_upload):
         os.makedirs(download_dir)
 
     options = webdriver.ChromeOptions()
+
+     # AGREGO ESTAS LÍNEAS PARA MODO FANTASMA EN EL NAVEGADOR "HEADLESS":
+    options.add_argument('--headless')  # Ejecutar sin ventana visible
+    options.add_argument('--no-sandbox')  # Mejorar compatibilidad
+    options.add_argument('--disable-dev-shm-usage')  # Evitar problemas de memoria
+
     options.add_experimental_option("prefs", {
         "download.default_directory": download_dir,
         "download.prompt_for_download": False,
@@ -181,6 +187,11 @@ def firmador_automation(cuit, password, code, pin, files_to_upload):
         if files_to_upload:
             for i, file_path in enumerate(files_to_upload):
                 print(f"\nProcesando archivo: {file_path}")
+
+                # AGREGAR ESTAS 3 LÍNEAS para reportar progreso:
+                if hasattr(firmador_automation, 'progress_callback'):
+                    filename = os.path.basename(file_path)
+                    firmador_automation.progress_callback(i, len(files_to_upload), filename, f'Procesando {filename}...')
                 
                 # Esperar a que el input de tipo file sea visible
                 file_uploader = WebDriverWait(browser, 20).until(
@@ -222,6 +233,10 @@ def firmador_automation(cuit, password, code, pin, files_to_upload):
                 wait_for_download_and_rename(download_dir, new_filename)
                 
                 print(f"Archivo {original_filename} renombrado a {new_filename} y guardado en {download_dir}")
+                # AGREGAR ESTAS 2 LÍNEAS AQUÍ:
+                if hasattr(firmador_automation, 'progress_callback'):
+                    firmador_automation.progress_callback(i + 1, len(files_to_upload), original_filename, f'{original_filename} completado')
+
                 
                 # Regresar a la pantalla de carga para el siguiente archivo
                 browser.back()
@@ -234,14 +249,16 @@ def firmador_automation(cuit, password, code, pin, files_to_upload):
         else:
             print("No se seleccionaron archivos para adjuntar. Proceso de firma omitido.")
         
-        while True:
-            try:
-                browser.title
-                sleep(2)
-            except WebDriverException:
-                print("El navegador ha sido cerrado. Deteniendo el programa.")
-                break
-                
+        # while True:
+          #  try:
+           #     browser.title
+            #    sleep(2)
+           # except WebDriverException:
+           #     print("El navegador ha sido cerrado. Deteniendo el programa.")
+            #    break
+            # Opcional: mantener el navegador abierto por unos segundos para ver el resultado
+        print("Proceso completado. Cerrando navegador en 3 segundos...")
+        sleep(3)    
     except TimeoutException:
         print("Error: No se encontraron los elementos de la página a tiempo.")
         messagebox.showerror("Error", "No se pudo cargar la página o los elementos.")
