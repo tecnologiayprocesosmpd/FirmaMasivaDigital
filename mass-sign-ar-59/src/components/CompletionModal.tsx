@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card';
 interface CompletionModalProps {
   isOpen: boolean;
   totalProcessed: number;
+  userPath?: string; // se agrega el camino de las carpetas del usuario
   onFinish: () => void;
   onLoadMore: () => void;
 }
@@ -13,6 +14,7 @@ interface CompletionModalProps {
 const CompletionModal: React.FC<CompletionModalProps> = ({
   isOpen,
   totalProcessed,
+  userPath,
   onFinish,
   onLoadMore
 }) => {
@@ -41,9 +43,9 @@ const CompletionModal: React.FC<CompletionModalProps> = ({
           <div className="bg-green-50 p-4 rounded-lg">
             <div className="flex items-center justify-center space-x-2 text-green-700">
               <FileText className="w-4 h-4" />
-              <span className="text-sm font-medium">
-                Archivos guardados en C:\firmado
-              </span>
+            <span className="text-sm font-medium">
+              {`Archivos guardados en ${userPath || 'carpeta del usuario'}`}
+            </span>
             </div>
           </div>
           

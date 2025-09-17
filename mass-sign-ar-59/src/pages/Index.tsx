@@ -6,6 +6,8 @@ import FileUpload from '@/components/FileUpload';
 import CredentialsForm from '@/components/CredentialsForm';
 import OTPModal from '@/components/OTPModal';
 import CompletionModal from '@/components/CompletionModal';
+import UserValidationModal from '@/components/UserValidationModal';
+import ProgressModal from '@/components/ProgressModal';
 import { useToast } from '@/hooks/use-toast';
 
 interface CredentialsData {
@@ -29,11 +31,14 @@ const Index = () => {
   });
   const [isProcessing, setIsProcessing] = useState(false);
   const [showOTPModal, setShowOTPModal] = useState(false);
+  const [showUserValidationModal, setShowUserValidationModal] = useState(false);
+  const [showProgressModal, setShowProgressModal] = useState(false);
   const [validationErrors, setValidationErrors] = useState<{
     files?: boolean;
     cuil?: boolean;
     password?: boolean;
     pin?: boolean;
+    
   }>({});
 
   // Estados adicionales para la barra de progreso
@@ -566,6 +571,7 @@ const Index = () => {
       <CompletionModal 
         isOpen={showCompletionModal}
         totalProcessed={successfullyProcessed}
+        userPath={userData?.path_carpetas} // se agrega userPath para que se vea reflejado al finalizar donde fue alojado los archivos firmados
         onFinish={handleFinishProcess}
         onLoadMore={handleLoadMoreFiles}
       />
@@ -576,6 +582,24 @@ const Index = () => {
         onClose={() => setShowOTPModal(false)} 
         onConfirm={handleFinalSign} 
         isProcessing={isProcessing} 
+      />
+      {/* Validacion de usuario con CUIL */}
+      <UserValidationModal
+        isOpen={showUserValidationModal}
+        isValidating={isValidatingUser}
+        isValid={userValidated}
+        message={userValidationMessage}
+        userData={userData}
+        onClose={() => setShowUserValidationModal(false)}
+      />
+
+      <ProgressModal
+        isOpen={showProgressModal}
+        currentFile={currentFile}
+        totalFiles={totalFiles}
+        currentFileName={currentFileName}
+        progressMessage={progressMessage}
+        responsable={userData?.responsable}
       />
     </div>
   );

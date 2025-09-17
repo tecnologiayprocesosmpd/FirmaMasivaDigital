@@ -123,12 +123,12 @@ def wait_for_download_and_rename(download_dir, new_filename):
         
     raise TimeoutException("El archivo no se descargó a tiempo.")
     
-def firmador_automation(cuit, password, code, pin, files_to_upload):
+def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
     """
     Automatiza el proceso de login y firma en la página firmar.gob.ar.
     """
     # **Mover la configuración del navegador aquí dentro de la función**
-    download_dir = 'C:\\firmado'
+    download_dir = user_path 
     if not os.path.exists(download_dir):
         os.makedirs(download_dir)
 
