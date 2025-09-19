@@ -7,38 +7,37 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
-from time import sleep
 import threading
 import os
 import glob
 import time
 
-# Variable global para los archivos seleccionados
+# Variable global for selected files
 selected_files = []
 
 def select_files():
-    """Abre un diálogo para que el usuario seleccione archivos PDF y los muestra en la consola."""
+    """Opens a dialog for the user to select PDF files and shows them in the console."""
     global selected_files
     filetypes = [("PDF files", "*.pdf")]
-    file_paths = filedialog.askopenfilenames(title="Seleccionar archivos PDF", filetypes=filetypes)
+    file_paths = filedialog.askopenfilenames(title="Select PDF files", filetypes=filetypes)
     
     if file_paths:
         selected_files = list(file_paths)
-        messagebox.showinfo("Archivos Seleccionados", f"Se han seleccionado {len(selected_files)} archivo(s).")
+        messagebox.showinfo("Selected Files", f"You have selected {len(selected_files)} file(s).")
         
-        print("Archivos seleccionados:")
+        print("Selected files:")
         for file in selected_files:
             print(f"- {file}")
     else:
         selected_files = []
-        print("No se seleccionaron archivos.")
+        print("No files were selected.")
 
 def create_login_window():
     """
-    Crea y muestra la ventana de login con cuatro campos de entrada.
+    Creates and shows the login window with four input fields.
     """
     window = tk.Tk()
-    window.title("Login Firmador")
+    window.title("Login Signer")
     window.geometry("500x400")
     window.eval('tk::PlaceWindow . center')
 
@@ -54,11 +53,11 @@ def create_login_window():
     cuit_entry = ttk.Entry(main_frame)
     cuit_entry.pack(fill="x", pady=(0, 10))
     
-    ttk.Label(main_frame, text="Contraseña").pack(pady=(0, 5))
+    ttk.Label(main_frame, text="Password").pack(pady=(0, 5))
     password_entry = ttk.Entry(main_frame, show="*")
     password_entry.pack(fill="x", pady=(0, 10))
     
-    ttk.Label(main_frame, text="Código").pack(pady=(0, 5))
+    ttk.Label(main_frame, text="Code").pack(pady=(0, 5))
     code_entry = ttk.Entry(main_frame, show="*")
     code_entry.pack(fill="x", pady=(0, 10))
     
@@ -66,7 +65,7 @@ def create_login_window():
     pin_entry = ttk.Entry(main_frame, show="*")
     pin_entry.pack(fill="x", pady=(0, 10))
 
-    select_button = ttk.Button(main_frame, text="Seleccionar Archivos PDF", command=select_files)
+    select_button = ttk.Button(main_frame, text="Select PDF Files", command=select_files)
     select_button.pack(pady=(10, 5), fill="x")
 
     def on_submit():
@@ -74,70 +73,79 @@ def create_login_window():
         password = password_entry.get()
         code = code_entry.get()
         pin = pin_entry.get()
-
+        
+        # Define the download path for the user
+        user_path = os.path.join(os.path.expanduser('~'), 'Downloads')
+        
         if not all([cuit, password, code, pin]):
-            messagebox.showerror("Error", "Todos los campos deben ser completados.")
+            messagebox.showerror("Error", "All fields must be filled.")
             return
         
         window.destroy()
 
         automation_thread = threading.Thread(
             target=firmador_automation,
-            args=(cuit, password, code, pin, selected_files)
+            args=(cuit, password, code, pin, selected_files, user_path)
         )
         automation_thread.start()
 
-    submit_button = ttk.Button(main_frame, text="Acceder", command=on_submit)
+    submit_button = ttk.Button(main_frame, text="Access", command=on_submit)
     submit_button.pack(pady=20, fill="x")
 
     window.mainloop()
 
-# La función auxiliar se ha corregido para buscar el archivo más reciente y eliminar el código duplicado
+# --- Utility Functions ---
+
+def get_next_filename(download_dir, filename_without_ext, extension):
+    """
+    Generates a unique filename with a counter to prevent overwrites.
+    Example: 'documento_firmado.pdf' -> 'documento_firmado_01.pdf'
+    """
+    counter = 1
+    new_filename = f"{filename_without_ext}_firmado{extension}"
+    while os.path.exists(os.path.join(download_dir, new_filename)):
+        new_filename = f"{filename_without_ext}_firmado_{counter:02d}{extension}"
+        counter += 1
+    return new_filename
+
 def wait_for_download_and_rename(download_dir, new_filename):
     """
-    Espera a que un nuevo archivo se descargue en el directorio y luego lo renombra.
+    Waits for a new file to download in the directory and then renames it.
     """
     timeout = 60
     start_time = time.time()
     
-    # Obtener el listado inicial de archivos en el directorio
     initial_files = set(os.listdir(download_dir))
     
-    # Esperar hasta que un nuevo archivo aparezca en la carpeta
     while time.time() - start_time < timeout:
         current_files = set(os.listdir(download_dir))
         new_files = list(current_files - initial_files)
         
-        # Filtrar archivos temporales de descarga
         newly_downloaded_files = [f for f in new_files if not f.endswith('.crdownload')]
         
         if newly_downloaded_files:
             downloaded_file = os.path.join(download_dir, newly_downloaded_files[0])
             
-            # Renombrar el archivo encontrado
             os.rename(downloaded_file, os.path.join(download_dir, new_filename))
-            print(f"Descarga completa. Archivo renombrado a {new_filename}.")
+            print(f"Download complete. File renamed to {new_filename}.")
             return
             
-        sleep(0.5)
+        time.sleep(0.5)
         
-    raise TimeoutException("El archivo no se descargó a tiempo.")
-    
+    raise TimeoutException("The file did not download in time.")
+
 def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
     """
-    Automatiza el proceso de login y firma en la página firmar.gob.ar.
+    Automates the login and signing process on the firmar.gob.ar page.
     """
-    # **Mover la configuración del navegador aquí dentro de la función**
     download_dir = user_path 
     if not os.path.exists(download_dir):
         os.makedirs(download_dir)
 
     options = webdriver.ChromeOptions()
-
-     # AGREGO ESTAS LÍNEAS PARA MODO FANTASMA EN EL NAVEGADOR "HEADLESS":
-    options.add_argument('--headless')  # Ejecutar sin ventana visible
-    options.add_argument('--no-sandbox')  # Mejorar compatibilidad
-    options.add_argument('--disable-dev-shm-usage')  # Evitar problemas de memoria
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
 
     options.add_experimental_option("prefs", {
         "download.default_directory": download_dir,
@@ -152,7 +160,7 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
         browser = webdriver.Chrome(service=service, options=options)
         browser.get("https://firmar.gob.ar/firmador/#/")
         
-        # --- ETAPA 1: Login con CUIT y Contraseña ---
+        # --- STAGE 1: Login with CUIT and Password ---
         WebDriverWait(browser, 20).until(
             EC.presence_of_element_located((By.ID, "inputCUIL"))
         )
@@ -166,13 +174,13 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
             EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Acceder')]"))
         )
         acceder_button_stage1.click()
-        print("Botón 'Acceder' de la etapa 1 presionado.")
+        print("Button 'Access' from stage 1 pressed.")
         
-        # --- ETAPA 2: Ingresar Código ---
+        # --- STAGE 2: Enter Code ---
         WebDriverWait(browser, 20).until(
             EC.presence_of_element_located((By.ID, "inputOtp"))
         )
-        print("Campos de la etapa 2 encontrados.")
+        print("Fields from stage 2 found.")
         
         code_input = browser.find_element(By.ID, "inputOtp")
         code_input.send_keys(code)
@@ -181,93 +189,79 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
             EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Acceder')]"))
         )
         acceder_button_stage2.click()
-        print("Botón 'Acceder' de la etapa 2 presionado. Login completado.")
+        print("Button 'Access' from stage 2 pressed. Login completed.")
         
-        # --- ETAPA 3: Bucle para cada archivo ---
+        # --- STAGE 3: Loop for each file ---
         if files_to_upload:
             for i, file_path in enumerate(files_to_upload):
-                print(f"\nProcesando archivo: {file_path}")
-
-                # AGREGAR ESTAS 3 LÍNEAS para reportar progreso:
-                if hasattr(firmador_automation, 'progress_callback'):
-                    filename = os.path.basename(file_path)
-                    firmador_automation.progress_callback(i, len(files_to_upload), filename, f'Procesando {filename}...')
                 
-                # Esperar a que el input de tipo file sea visible
-                file_uploader = WebDriverWait(browser, 20).until(
-                    EC.presence_of_element_located((By.XPATH, "//input[@type='file']"))
-                )
-                
-                file_uploader.send_keys(file_path)
-                print("Archivo adjuntado.")
-
-                # Esperar a que el campo del PIN aparezca
-                pin_input = WebDriverWait(browser, 15).until(
-                    EC.presence_of_element_located((By.ID, "inputPin"))
-                )
-                
-                pin_input.send_keys(pin)
-                print("PIN ingresado.")
-                
-                # Esperar a que el botón "Firmar" sea clicable
-                firmar_button = WebDriverWait(browser, 20).until(
-                    EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Firmar')]"))
-                )
-                firmar_button.click()
-                print("Botón 'Firmar' presionado.")
-                sleep(2)
-                # Esperar a que el botón "Descargar" aparezca
-                descargar_button = WebDriverWait(browser, 30).until(
-                    EC.element_to_be_clickable((By.XPATH, "//a[contains(., 'Descargar documento')]"))
-                ) 
-                
-                # OBTENER EL NOMBRE DEL ARCHIVO ORIGINAL
                 original_filename = os.path.basename(file_path)
-                base_name, file_extension = os.path.splitext(original_filename)
-                new_filename = f"{base_name}_firmado{file_extension}"
                 
-                print("Iniciando la descarga...")
-                descargar_button.click()
-
-                # **LLAMADA CORREGIDA**
-                wait_for_download_and_rename(download_dir, new_filename)
+                # if "_firmado" in original_filename.lower():
+                #     print(f"Skipping {original_filename}. It appears to be already signed.")
+                #     continue
                 
-                print(f"Archivo {original_filename} renombrado a {new_filename} y guardado en {download_dir}")
-                # AGREGAR ESTAS 2 LÍNEAS AQUÍ:
-                if hasattr(firmador_automation, 'progress_callback'):
-                    firmador_automation.progress_callback(i + 1, len(files_to_upload), original_filename, f'{original_filename} completado')
+                print(f"\nProcessing file: {file_path}")
 
-                
-                # Regresar a la pantalla de carga para el siguiente archivo
-                browser.back()
-                # **Añadir una espera para permitir que la página se cargue de nuevo**
-                sleep(2)
-                WebDriverWait(browser, 10).until(
-                    EC.presence_of_element_located((By.XPATH, "//input[@type='file']"))
-                )
+                try:
+                    file_uploader = WebDriverWait(browser, 20).until(
+                        EC.presence_of_element_located((By.XPATH, "//input[@type='file']"))
+                    )
+                    
+                    file_uploader.send_keys(file_path)
+                    print("File attached.")
 
+                    pin_input = WebDriverWait(browser, 15).until(
+                        EC.presence_of_element_located((By.ID, "inputPin"))
+                    )
+                    
+                    pin_input.send_keys(pin)
+                    print("PIN entered.")
+                    
+                    firmar_button = WebDriverWait(browser, 20).until(
+                        EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Firmar')]"))
+                    )
+                    firmar_button.click()
+                    print("Button 'Sign' pressed.")
+                    time.sleep(2)
+
+                    descargar_button = WebDriverWait(browser, 30).until(
+                        EC.element_to_be_clickable((By.XPATH, "//a[contains(., 'Descargar documento')]"))
+                    ) 
+                    
+                    # New filename with potential counter
+                    base_name, file_extension = os.path.splitext(original_filename)
+                    new_filename = get_next_filename(download_dir, base_name, file_extension)
+                    
+                    print("Starting download...")
+                    descargar_button.click()
+
+                    wait_for_download_and_rename(download_dir, new_filename)
+                    
+                    print(f"File {original_filename} renamed to {new_filename} and saved in {download_dir}")
+                    
+                    # Return to the upload screen for the next file
+                    browser.back()
+                    time.sleep(2)
+                    WebDriverWait(browser, 10).until(
+                        EC.presence_of_element_located((By.XPATH, "//input[@type='file']"))
+                    )
+                    
+                except TimeoutException:
+                    print(f"Timeout error while processing {original_filename}. Continuing with the next one.")
+                    continue
+                except Exception as e:
+                    print(f"An unexpected error occurred while processing {original_filename}: {e}")
+                    continue
+            
+            print("Process completed. Closing browser in 3 seconds...")
+            time.sleep(3)
         else:
-            print("No se seleccionaron archivos para adjuntar. Proceso de firma omitido.")
+            print("No files were selected to attach. Signing process skipped.")
         
-        # while True:
-          #  try:
-           #     browser.title
-            #    sleep(2)
-           # except WebDriverException:
-           #     print("El navegador ha sido cerrado. Deteniendo el programa.")
-            #    break
-            # Opcional: mantener el navegador abierto por unos segundos para ver el resultado
-        print("Proceso completado. Cerrando navegador en 3 segundos...")
-        sleep(3)    
-    except TimeoutException:
-        print("Error: No se encontraron los elementos de la página a tiempo.")
-        messagebox.showerror("Error", "No se pudo cargar la página o los elementos.")
-    except IndexError:
-        print("Error: No se seleccionaron archivos. No se puede proceder con la firma.")
-        messagebox.showerror("Error", "No se seleccionaron archivos.")
     except Exception as e:
-        print(f"Ocurrió un error inesperado: {e}")
-        messagebox.showerror("Error", f"Ocurrió un error durante la automatización: {e}")
+        print(f"An unexpected general error occurred: {e}")
+        messagebox.showerror("Error", f"An error occurred during automation: {e}")
     finally:
         if browser:
             browser.quit()
