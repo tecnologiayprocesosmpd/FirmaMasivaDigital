@@ -4,6 +4,8 @@ import threading
 import os
 import tempfile
 import uuid
+import subprocess
+import platform
 import shutil
 # Importar desde tu archivo firma.py
 from firma import firmador_automation
@@ -246,6 +248,62 @@ def reset_process():
         return jsonify({"message": "Sistema reiniciado correctamente"}), 200
     except Exception as e:
         return jsonify({"message": f"Error al reiniciar: {str(e)}"}), 500
+# Agregar este endpoint a tu app.py (después de los otros endpoints)
+
+@app.route('/abrir-carpeta', methods=['POST'])
+def abrir_carpeta():
+    """Endpoint para abrir la carpeta donde se guardaron los archivos"""
+    try:
+        data = request.get_json()
+        ruta = data.get('ruta')
+        
+        if not ruta:
+            return jsonify({
+                "success": False, 
+                "error": "No se proporcionó una ruta"
+            }), 400
+        
+        # Verificar que la carpeta existe
+        if not os.path.exists(ruta):
+            return jsonify({
+                "success": False, 
+                "error": f"La carpeta no existe: {ruta}"
+            }), 400
+        
+        # Determinar el sistema operativo y abrir la carpeta
+        sistema = platform.system()
+        
+        if sistema == "Windows":
+            # En Windows usar explorer
+            subprocess.run(['explorer', ruta], check=True)
+        elif sistema == "Darwin":  # macOS
+            # En Mac usar open
+            subprocess.run(['open', ruta], check=True)
+        elif sistema == "Linux":
+            # En Linux usar xdg-open
+            subprocess.run(['xdg-open', ruta], check=True)
+        else:
+            return jsonify({
+                "success": False, 
+                "error": f"Sistema operativo no soportado: {sistema}"
+            }), 400
+        
+        return jsonify({
+            "success": True, 
+            "message": f"Carpeta abierta exitosamente: {ruta}"
+        })
+        
+    except subprocess.CalledProcessError as e:
+        return jsonify({
+            "success": False, 
+            "error": f"Error al ejecutar comando del sistema: {str(e)}"
+        }), 500
+        
+    except Exception as e:
+        return jsonify({
+            "success": False, 
+            "error": f"Error inesperado: {str(e)}"
+        }), 500
 
 if __name__ == '__main__':
     print("Iniciando servidor Flask...")
