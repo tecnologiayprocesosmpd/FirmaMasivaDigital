@@ -38,7 +38,6 @@ const Index = () => {
     cuil?: boolean;
     password?: boolean;
     pin?: boolean;
-    
   }>({});
 
   // Estados adicionales para la barra de progreso
@@ -56,6 +55,8 @@ const Index = () => {
   const [userValidationMessage, setUserValidationMessage] = useState('');
   const [userData, setUserData] = useState<UserData | null>(null);
   const [isValidatingUser, setIsValidatingUser] = useState(false);
+
+  // Estado removido - no necesitamos mensajes persistentes
 
   const { toast } = useToast();
 
@@ -82,6 +83,8 @@ const Index = () => {
     }
 
     setIsValidatingUser(true);
+    setShowUserValidationModal(true); // MOSTRAR MODAL AL INICIAR VALIDACIÓN
+    
     try {
       const response = await fetch('http://127.0.0.1:5000/validate-user', {
         method: 'POST',
@@ -97,7 +100,9 @@ const Index = () => {
         setUserValidated(true);
         setUserValidationMessage(`Usuario autorizado: ${data.user_data.responsable}`);
         setUserData(data.user_data);
+
         
+        // El modal permanece abierto mostrando el éxito
         toast({
           title: "Usuario autorizado",
           description: `Bienvenido ${data.user_data.responsable}`,
@@ -106,7 +111,9 @@ const Index = () => {
         setUserValidated(false);
         setUserValidationMessage(data.message);
         setUserData(null);
+
         
+        // El modal permanece abierto mostrando el error
         toast({
           title: "Acceso denegado",
           description: data.message,
@@ -117,6 +124,7 @@ const Index = () => {
       setUserValidated(false);
       setUserValidationMessage('Error de conexión con el servidor');
       setUserData(null);
+
       
       toast({
         title: "Error de conexión",
@@ -125,6 +133,7 @@ const Index = () => {
       });
     } finally {
       setIsValidatingUser(false);
+      // El modal se queda abierto hasta que el usuario haga clic en cerrar
     }
   };
 
@@ -169,6 +178,7 @@ const Index = () => {
       setUserValidated(false);
       setUserValidationMessage('');
       setUserData(null);
+
       
       // Validar después de un pequeño delay para evitar muchas llamadas
       setTimeout(() => {
@@ -181,6 +191,8 @@ const Index = () => {
       setUserValidated(false);
       setUserValidationMessage('');
       setUserData(null);
+
+      setShowUserValidationModal(false); // CERRAR MODAL SI CUIL ES MUY CORTO
     }
   };
 
@@ -197,6 +209,8 @@ const Index = () => {
       
       if (data.status === 'completed') {
         setIsProcessing(false);
+        setShowProgressModal(false); // CERRAR MODAL DE PROGRESO
+        
         if (progressInterval) {
           clearInterval(progressInterval);
           setProgressInterval(null);
@@ -213,6 +227,8 @@ const Index = () => {
         
       } else if (data.status === 'error') {
         setIsProcessing(false);
+        setShowProgressModal(false); // CERRAR MODAL DE PROGRESO EN ERROR
+        
         if (progressInterval) {
           clearInterval(progressInterval);
           setProgressInterval(null);
@@ -272,6 +288,7 @@ const Index = () => {
 
   const handleFinalSign = async (otp: string) => {
     setIsProcessing(true);
+    setShowProgressModal(true); // MOSTRAR MODAL DE PROGRESO
     setTotalFiles(files.length);
     setCurrentFile(0);
     setProgressMessage('Preparando proceso...');
@@ -314,6 +331,8 @@ const Index = () => {
     } catch (error: any) {
       console.error('Error al procesar la firma:', error);
       setIsProcessing(false);
+      setShowProgressModal(false); // CERRAR MODAL SI HAY ERROR
+      
       toast({
         title: "Error en el proceso",
         description: `Ocurrió un error: ${error.message}. Intente nuevamente.`,
@@ -352,6 +371,8 @@ const Index = () => {
       setIsProcessing(false);
       setShowOTPModal(false);
       setShowCompletionModal(false);
+      setShowUserValidationModal(false); // CERRAR MODAL DE VALIDACIÓN
+      setShowProgressModal(false); // CERRAR MODAL DE PROGRESO
       setSessionId('');
       setCurrentFile(0);
       setTotalFiles(0);
@@ -364,6 +385,7 @@ const Index = () => {
       setUserValidated(false);
       setUserValidationMessage('');
       setUserData(null);
+
       
       if (progressInterval) {
         clearInterval(progressInterval);
@@ -448,90 +470,9 @@ const Index = () => {
             validationErrors={validationErrors} 
           />
 
-          {/* NUEVA SECCIÓN: Validación de Usuario */}
-          {credentials.cuil.length >= 8 && (
-            <Card className={`p-4 shadow-soft border-l-4 ${
-              isValidatingUser 
-                ? 'border-l-yellow-500' 
-                : userValidated 
-                  ? 'border-l-green-500' 
-                  : 'border-l-red-500'
-            }`}>
-              <div className="flex items-center space-x-3">
-                {isValidatingUser ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
-                    <span className="text-yellow-700 font-medium">Validando usuario...</span>
-                  </>
-                ) : userValidated ? (
-                  <>
-                    <CheckCircle className="w-5 h-5 text-green-500" />
-                    <div>
-                      <span className="text-green-700 font-medium">✓ {userValidationMessage}</span>
-                      {userData && (
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Archivos se guardarán en: {userData.path_carpetas}
-                        </p>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <XCircle className="w-5 h-5 text-red-500" />
-                    <span className="text-red-700 font-medium">✗ {userValidationMessage}</span>
-                  </>
-                )}
-              </div>
-            </Card>
-          )}
+          
 
-          {/* Barra de Progreso */}
-          {isProcessing && (
-            <Card className="p-6 shadow-soft border-l-4 border-l-blue-500">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-foreground">
-                    Procesando documentos...
-                  </h3>
-                  <span className="text-sm text-muted-foreground font-medium">
-                    {currentFile} de {totalFiles} archivos
-                  </span>
-                </div>
-                
-                {/* Barra de progreso visual */}
-                <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-                  <div 
-                    className="bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full transition-all duration-500 ease-in-out shadow-sm"
-                    style={{ 
-                      width: totalFiles > 0 ? `${(currentFile / totalFiles) * 100}%` : '0%' 
-                    }}
-                  />
-                </div>
-                
-                {/* Porcentaje */}
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground">
-                    {progressMessage}
-                  </span>
-                  <span className="font-medium text-foreground">
-                    {totalFiles > 0 ? Math.round((currentFile / totalFiles) * 100) : 0}%
-                  </span>
-                </div>
-                
-                {/* Archivo actual */}
-                {currentFileName && (
-                  <div className="bg-gray-50 p-3 rounded-lg">
-                    <p className="text-sm font-medium text-foreground">
-                      Archivo actual:
-                    </p>
-                    <p className="text-sm text-muted-foreground truncate">
-                      {currentFileName}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </Card>
-          )}
+          {/* SIN mensajes de error persistentes - solo modal */}
 
           {/* Action Button - MODIFICADO para mostrar estado de validación */}
           <div className="flex justify-center">
@@ -571,7 +512,7 @@ const Index = () => {
       <CompletionModal 
         isOpen={showCompletionModal}
         totalProcessed={successfullyProcessed}
-        userPath={userData?.path_carpetas} // se agrega userPath para que se vea reflejado al finalizar donde fue alojado los archivos firmados
+        userPath={userData?.path_carpetas}
         onFinish={handleFinishProcess}
         onLoadMore={handleLoadMoreFiles}
       />
@@ -583,7 +524,8 @@ const Index = () => {
         onConfirm={handleFinalSign} 
         isProcessing={isProcessing} 
       />
-      {/* Validacion de usuario con CUIL */}
+
+      {/* Modal de Validación de Usuario */}
       <UserValidationModal
         isOpen={showUserValidationModal}
         isValidating={isValidatingUser}
@@ -593,6 +535,7 @@ const Index = () => {
         onClose={() => setShowUserValidationModal(false)}
       />
 
+      {/* Modal de Progreso */}
       <ProgressModal
         isOpen={showProgressModal}
         currentFile={currentFile}
