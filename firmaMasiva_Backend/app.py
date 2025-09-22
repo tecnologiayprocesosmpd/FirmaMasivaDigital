@@ -53,7 +53,8 @@ def create_user_directory(path):
 def firmador_automation_wrapper(cuit, password, code, pin, file_paths, session_id, user_data):
     """Wrapper que ejecuta tu función original y actualiza el progreso"""
     try:
-        update_progress(session_id, 0, len(file_paths), '', 'Iniciando proceso de firma...')
+        total_files = len(file_paths)
+        update_progress(session_id, 0, total_files, '', 'Iniciando proceso de firma...')
         
         # Registrar archivos en BD
         for file_path in file_paths:
@@ -61,22 +62,26 @@ def firmador_automation_wrapper(cuit, password, code, pin, file_paths, session_i
             file_size = os.path.getsize(file_path) if os.path.exists(file_path) else None
             create_processed_file(session_id, filename, file_size)
         
-        # Agregar callback a la función para reportar progreso
-        def progress_callback(current, total, filename, message):
-            update_progress(session_id, current, total, filename, message)
-            
-            # Si completó un archivo, actualizarlo en BD
-            if filename and 'completado' in message.lower():
-                signed_filename = f"{os.path.splitext(filename)[0]}_firmado{os.path.splitext(filename)[1]}"
-                complete_processed_file(session_id, filename, signed_filename, None, 'completed')
+        # Función para simular progreso mientras firmador_automation se ejecuta
+        def simulate_progress():
+            import time
+            # Simular progreso gradual
+            for i in range(1, total_files + 1):
+                time.sleep(5)  # Esperar 5 segundos entre archivos
+                if session_id in progress_data:  # Solo si la sesión aún existe
+                    filename = os.path.basename(file_paths[i-1]) if i <= len(file_paths) else ''
+                    update_progress(session_id, i, total_files, filename, f'Procesando archivo {i} de {total_files}: {filename}')
         
-        # Asignar el callback a tu función
-        firmador_automation.progress_callback = progress_callback
+        # Iniciar simulación en hilo separado
+        import threading
+        progress_thread = threading.Thread(target=simulate_progress)
+        progress_thread.start()
         
-        # LLAMAR A TU FUNCIÓN ORIGINAL
+        # LLAMAR A TU FUNCIÓN ORIGINAL (una sola vez)
         firmador_automation(cuit, password, code, pin, file_paths, user_data['path_carpetas'])
         
-        update_progress(session_id, len(file_paths), len(file_paths), '', f'Proceso completado exitosamente. Archivos guardados en {user_data["path_carpetas"]}', 'completed')
+        # Asegurar que llegue al 100% cuando termine
+        update_progress(session_id, total_files, total_files, '', f'Proceso completado exitosamente. Archivos guardados en {user_data["path_carpetas"]}', 'completed')
         
     except Exception as e:
         update_progress(session_id, 0, len(file_paths), '', f'Error: {str(e)}', 'error')

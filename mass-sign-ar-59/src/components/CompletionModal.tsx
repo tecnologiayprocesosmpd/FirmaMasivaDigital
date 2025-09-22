@@ -18,37 +18,37 @@ const CompletionModal: React.FC<CompletionModalProps> = ({
 }) => {
   
   // Función para abrir la carpeta a través del backend
-  const abrirCarpeta = async () => {
-    if (!userPath) {
-      alert('No se pudo determinar la ruta de la carpeta');
-      return;
-    }
+const abrirCarpeta = async () => {
+  if (!userPath) {
+    console.log('No hay ruta de carpeta disponible');
+    return;
+  }
 
-    try {
-      const response = await fetch("http://127.0.0.1:5000/abrir-carpeta", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json" 
-        },
-        body: JSON.stringify({ 
-          ruta: userPath 
-        })
-      });
+  try {
+    const response = await fetch("http://127.0.0.1:5000/abrir-carpeta", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json" 
+      },
+      body: JSON.stringify({ 
+        ruta: userPath 
+      })
+    });
 
-      const resultado = await response.json();
-      
-      if (!resultado.success) {
-        throw new Error(resultado.error || 'Error al abrir carpeta');
-      }
-      
+    const resultado = await response.json();
+    
+    if (!resultado.success) {
+      console.log('No se pudo abrir carpeta:', resultado.error);
+      // NO mostrar alert - solo log
+    } else {
       console.log('Carpeta abierta exitosamente');
-      
-    } catch (error) {
-      console.error('Error al abrir carpeta:', error);
-      alert('No se pudo abrir la carpeta: ' + error.message);
     }
-  };
-
+    
+  } catch (error) {
+    console.error('Error al abrir carpeta:', error);
+    // NO mostrar alert - solo log en consola
+  }
+};
   if (!isOpen) return null;
 
   return (
