@@ -11,9 +11,11 @@ import threading
 import os
 import glob
 import time
+import requests
 
 # Variable global for selected files
 selected_files = []
+
 
 def select_files():
     """Opens a dialog for the user to select PDF files and shows them in the console."""
@@ -246,10 +248,18 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
                     WebDriverWait(browser, 10).until(
                         EC.presence_of_element_located((By.XPATH, "//input[@type='file']"))
                     )
-                    
                 except TimeoutException:
+                    # Verificar si es por pérdida de conexión
+                    if not check_internet_connection():
+                        print(f"CONEXIÓN PERDIDA en archivo {i+1}")
+                        messagebox.showerror("Conexión Perdida", 
+                                        f"Se perdió la conexión en el archivo {i+1} de {len(files_to_upload)}.\n"
+                                        f"Reinicie la aplicación y vuelva a cargar los PDFs.")
+                        return
+                    
                     print(f"Timeout error while processing {original_filename}. Continuing with the next one.")
-                    continue
+                    continue     
+                
                 except Exception as e:
                     print(f"An unexpected error occurred while processing {original_filename}: {e}")
                     continue
@@ -265,6 +275,13 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
     finally:
         if browser:
             browser.quit()
+
+def check_internet_connection():
+    """Verifica si hay conexión a internet y al sitio de firma"""
+    try:
+        response = requests.get("https://firmar.gob.ar", timeout=10)
+        return response.status_code == 200
+    except (requests.ConnectionError, requests.Timeout):return False
 
 if __name__ == "__main__":
     create_login_window()
