@@ -10,7 +10,7 @@ import shutil
 # Importar desde tu archivo firma.py
 from firma import firmador_automation
 # NUEVO: Importar desde conexion.py
-from conexion import validate_user, create_session, update_session_progress, complete_session, log_activity, create_processed_file, complete_processed_file
+from conexionPosgre import validate_user, create_session, update_session_progress, complete_session, log_activity, create_processed_file, complete_processed_file
 
 app = Flask(__name__)
 CORS(app)
