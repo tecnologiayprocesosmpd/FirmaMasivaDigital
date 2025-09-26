@@ -132,7 +132,7 @@ def wait_for_download_and_rename(download_dir, new_filename):
             print(f"Download complete. File renamed to {new_filename}.")
             return
             
-        time.sleep(0.5)
+        time.sleep(0.2)
         
     raise TimeoutException("The file did not download in time.")
 
@@ -145,6 +145,7 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
         os.makedirs(download_dir)
 
     options = webdriver.ChromeOptions()
+    # modo fantasma
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
@@ -198,7 +199,12 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
             for i, file_path in enumerate(files_to_upload):
                 
                 original_filename = os.path.basename(file_path)
-                
+
+                    # AGREGAR ESTA LÍNEA - reportar inicio del archivo
+                if hasattr(firmador_automation, 'progress_callback'):
+                    firmador_automation.progress_callback(i, len(files_to_upload), original_filename, 
+                                                        f'Procesando {original_filename}...')
+                    
                 # if "_firmado" in original_filename.lower():
                 #     print(f"Skipping {original_filename}. It appears to be already signed.")
                 #     continue
@@ -225,7 +231,7 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
                     )
                     firmar_button.click()
                     print("Button 'Sign' pressed.")
-                    time.sleep(2)
+                    time.sleep(1)
 
                     descargar_button = WebDriverWait(browser, 30).until(
                         EC.element_to_be_clickable((By.XPATH, "//a[contains(., 'Descargar documento')]"))
@@ -241,10 +247,14 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
                     wait_for_download_and_rename(download_dir, new_filename)
                     
                     print(f"File {original_filename} renamed to {new_filename} and saved in {download_dir}")
+
+                    if hasattr(firmador_automation, 'progress_callback'):
+                        firmador_automation.progress_callback(i + 1, len(files_to_upload), original_filename, 
+                                                        f'{original_filename} completado')
                     
                     # Return to the upload screen for the next file
                     browser.back()
-                    time.sleep(2)
+                    time.sleep(1)
                     WebDriverWait(browser, 10).until(
                         EC.presence_of_element_located((By.XPATH, "//input[@type='file']"))
                     )
@@ -265,7 +275,7 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
                     continue
             
             print("Process completed. Closing browser in 3 seconds...")
-            time.sleep(3)
+            time.sleep(1)
         else:
             print("No files were selected to attach. Signing process skipped.")
         

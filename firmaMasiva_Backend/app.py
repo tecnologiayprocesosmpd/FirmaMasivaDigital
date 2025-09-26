@@ -62,15 +62,20 @@ def firmador_automation_wrapper(cuit, password, code, pin, file_paths, session_i
             file_size = os.path.getsize(file_path) if os.path.exists(file_path) else None
             create_processed_file(session_id, filename, file_size)
 
-        for i, file_path in enumerate(file_paths):
+       # Llamar UNA SOLA VEZ con todos los archivos
+        message = f'Iniciando proceso de firma para {total_files} archivos'
+        update_progress(session_id, 0, total_files, '', message, 'processing')
+     # se agrega estas lineas para reportar progreso
+        def progress_callback(current, total, filename, message):
+            update_progress(session_id, current, total, filename, message, 'processing')
+    
+        firmador_automation.progress_callback = progress_callback
+        
+        firmador_automation(cuit, password, code, pin, file_paths, user_data['path_carpetas'])
+
+        # Marcar todos como completados al final
+        for file_path in file_paths:
             current_filename = os.path.basename(file_path)
-            message = f'Procesando archivo {i + 1} de {total_files}: {current_filename}'
-            update_progress(session_id, i + 1, total_files, current_filename, message, 'processing')
-            
-            # Llama a tu función original para firmar el archivo
-            firmador_automation(cuit, password, code, pin, [file_path], user_data['path_carpetas'])
-            
-            # Actualiza el estado del archivo procesado en la base de datos
             complete_processed_file(session_id, current_filename, 'completed')
 
         # Actualización final de progreso
