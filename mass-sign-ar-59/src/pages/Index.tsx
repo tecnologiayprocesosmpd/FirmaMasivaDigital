@@ -9,6 +9,7 @@ import CompletionModal from '@/components/CompletionModal';
 import UserValidationModal from '@/components/UserValidationModal';
 import ProgressModal from '@/components/ProgressModal';
 import { useToast } from '@/hooks/use-toast';
+import InstruccioConModal from '@/components/InstruccioConModal';
 
 interface CredentialsData {
   cuil: string;
@@ -441,24 +442,7 @@ const Index = () => {
       <main className="container mx-auto px-6 py-8">
         <div className="max-w-4xl mx-auto space-y-8">
           {/* Instructions Card */}
-          <Card className="p-6 shadow-soft">
-            <div className="flex items-start space-x-4">
-              <div className="p-2 bg-secondary/10 rounded-full flex-shrink-0">
-                <FileCheck className="h-5 w-5 text-secondary" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-foreground mb-2">
-                  Instrucciones de uso
-                </h2>
-                <div className="text-sm text-muted-foreground space-y-2">
-                  <p>1. <strong>Ingrese su CUIL</strong> para validar que está autorizado</p>
-                  <p>2. <strong>Cargue archivos PDF</strong> que desea firmar digitalmente (máximo 14MB cada uno)</p>
-                  <p>3. <strong>Complete sus credenciales</strong> de la plataforma FirmAR.gob.ar</p>
-                  <p>4. <strong>Haga clic en "Firmar"</strong> para procesar todos los documentos</p>
-                </div>
-              </div>
-            </div>
-          </Card>
+          <InstruccioConModal />
 
           {/* File Upload Section */}
           <FileUpload files={files} onFilesChange={setFiles} />

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,6 +20,13 @@ const OTPModal: React.FC<OTPModalProps> = ({
 }) => {
   const [otp, setOtp] = useState('');
 
+  // Limpiar el campo OTP cada vez que se abre el modal
+  useEffect(() => {
+    if (isOpen) {
+      setOtp('');
+    }
+  }, [isOpen]);
+
   const handleOTPChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/\D/g, '').slice(0, 6);
     setOtp(value);
@@ -28,6 +35,13 @@ const OTPModal: React.FC<OTPModalProps> = ({
   const handleConfirm = () => {
     if (otp.length === 6) {
       onConfirm(otp);
+    }
+  };
+
+  // Manejar Enter en el input
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && otp.length === 6 && !isProcessing) {
+      handleConfirm();
     }
   };
 
@@ -67,14 +81,17 @@ const OTPModal: React.FC<OTPModalProps> = ({
               placeholder="123456"
               value={otp}
               onChange={handleOTPChange}
+              onKeyPress={handleKeyPress}
               maxLength={6}
               className="text-center text-lg tracking-wider font-mono"
               autoFocus
               disabled={isProcessing}
+              autoComplete="off"        // ← Esto elimina las sugerencias
+              name="otp-unique"         // ← Nombre único para evitar historial
             />
             <p className="text-xs text-muted-foreground text-center">
               {otp.length}/6 dígitos
-            </p>
+            </p>    
           </div>
 
           <div className="flex space-x-3 pt-4">
