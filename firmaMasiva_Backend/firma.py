@@ -146,9 +146,9 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
 
     options = webdriver.ChromeOptions()
     # modo fantasma
-    options.add_argument('--headless')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
+    #options.add_argument('--headless')
+    #options.add_argument('--no-sandbox')
+    #options.add_argument('--disable-dev-shm-usage')
 
     options.add_experimental_option("prefs", {
         "download.default_directory": download_dir,
