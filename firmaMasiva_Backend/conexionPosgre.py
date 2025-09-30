@@ -158,12 +158,20 @@ def log_activity(session_id, level, message):
     return result[0]['fActvLogid'] if result else None
 
 def create_processed_file(session_id, original_filename, file_size=None):
-    """Registra un archivo que se está procesando"""
+    """Registra un archivo que se está procesando con información real del sistema"""
+    import socket
+    import getpass
+    
     argentina_time = get_argentina_time()
-    # Datos de auditoría (puedes ajustar estos valores)
-    log_ip = "127.0.0.1"  # O obtener la IP real
-    log_pc = "FIRMA_SERVER"  # O obtener el nombre del PC
-    log_usuario = "SYSTEM"  # O obtener el usuario actual
+    
+    # Obtener datos REALES de auditoría
+    hostname = socket.gethostname()
+    username = getpass.getuser()
+    
+    try:
+        log_ip = socket.gethostbyname(hostname)
+    except:
+        log_ip = "127.0.0.1"
     
     query = '''
         INSERT INTO public."fLog" 
@@ -172,7 +180,7 @@ def create_processed_file(session_id, original_filename, file_size=None):
         VALUES (%s, %s, %s, 'processing', %s, %s, %s, %s)
         RETURNING "fLogId"
     '''
-    result = execute_query(query, (session_id, original_filename, file_size, argentina_time, log_ip, log_pc, log_usuario))
+    result = execute_query(query, (session_id, original_filename, file_size, argentina_time, log_ip, hostname, username))
     return result[0]['fLogId'] if result else None
 
 def complete_processed_file(session_id, original_filename, signed_filename, processing_time=None, status='completed', error_message=None):
