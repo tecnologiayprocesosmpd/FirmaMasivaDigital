@@ -319,10 +319,10 @@ const Index = () => {
       setSessionId(newSessionId);
 
       // Iniciar polling del progreso cada segundo
-      const interval = setInterval(() => {
-        checkProgress(newSessionId);
-      }, 1000);
-      setProgressInterval(interval);
+      // const interval = setInterval(() => {
+      //  checkProgress(newSessionId);
+      //}, 1000);
+      //setProgressInterval(interval);
 
       toast({
         title: "Proceso iniciado",
@@ -366,6 +366,11 @@ const Index = () => {
     try {
       await fetch('http://127.0.0.1:5000/reset', { method: 'POST' });
       
+        // CRÍTICO: Detener el polling ANTES de limpiar los estados
+      if (progressInterval) {
+        clearInterval(progressInterval);
+        setProgressInterval(null);
+      }
       // Limpiar todos los estados del frontend
       setFiles([]);
       setCredentials({ cuil: '', password: '', pin: '' });
@@ -410,12 +415,18 @@ const Index = () => {
 
   // Limpiar intervalo cuando el componente se desmonte
   useEffect(() => {
-    return () => {
-      if (progressInterval) {
-        clearInterval(progressInterval);
-      }
-    };
-  }, [progressInterval]);
+    let interval;
+    if (isProcessing && sessionId) {  // <-- Agregar && sessionId
+      interval = setInterval(() => {
+      checkProgress(sessionId);
+    }, 1000);
+    setProgressInterval(interval);
+  }
+  return () => {
+    if (interval) clearInterval(interval);
+  };
+  }, [isProcessing, sessionId]);
+
 
   return (
     <div className="min-h-screen bg-gradient-subtle">

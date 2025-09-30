@@ -157,7 +157,7 @@ def log_activity(session_id, level, message):
     result = execute_query(query, (session_id, level, message, argentina_time))
     return result[0]['fActvLogid'] if result else None
 
-def create_processed_file(session_id, original_filename, file_size=None):
+def create_processed_file(session_id, original_filename, file_size=None, cuil=None):
     """Registra un archivo que se está procesando con información real del sistema"""
     import socket
     import getpass
@@ -174,13 +174,13 @@ def create_processed_file(session_id, original_filename, file_size=None):
         log_ip = "127.0.0.1"
     
     query = '''
-        INSERT INTO public."fLog" 
-        ("fLogSessionId", "fLogOriginalFilename", "fLogFileSize", "fLogStatus", 
-         "fLogCreatedAt", "fLogLogip", "fLogLogpc", "fLogLogusuario")
-        VALUES (%s, %s, %s, 'processing', %s, %s, %s, %s)
-        RETURNING "fLogId"
-    '''
-    result = execute_query(query, (session_id, original_filename, file_size, argentina_time, log_ip, hostname, username))
+            INSERT INTO public."fLog" 
+            ("fLogSessionId", "fLogOriginalFilename", "fLogFileSize", "fLogStatus", 
+            "fLogCreatedAt", "fLogLogip", "fLogLogpc", "fLogLogusuario", "fLogCuil")
+            VALUES (%s, %s, %s, 'processing', %s, %s, %s, %s, %s)
+            RETURNING "fLogId"
+        '''
+    result = execute_query(query, (session_id, original_filename, file_size, argentina_time, log_ip, hostname, username, cuil))
     return result[0]['fLogId'] if result else None
 
 def complete_processed_file(session_id, original_filename, signed_filename, processing_time=None, status='completed', error_message=None):
