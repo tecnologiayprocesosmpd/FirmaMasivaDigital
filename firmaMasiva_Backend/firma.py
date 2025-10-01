@@ -159,6 +159,7 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
     
     service = Service(ChromeDriverManager().install())
     browser = None
+    
     try:
         browser = webdriver.Chrome(service=service, options=options)
         browser.get("https://firmar.gob.ar/firmador/#/")
@@ -179,7 +180,21 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
         acceder_button_stage1.click()
         print("Button 'Access' from stage 1 pressed.")
         
-        # --- STAGE 2: Enter Code ---
+     # Validar Stage 1
+        time.sleep(3)
+        error_password = browser.find_elements(By.XPATH, 
+            "//div[contains(text(), 'intentos fallidos')]"
+            " | //span[contains(text(), 'incorrectos')]"
+        )
+
+        print(f"DEBUG: Encontrados {len(error_password)} elementos de error")  # ← AGREGAR
+        if error_password and len(error_password) > 0:
+            print("DEBUG: Contraseña incorrecta detectada, lanzando excepción")  # ← AGREGAR
+            raise Exception("Usuario o contraseña incorrectos. Verifique sus credenciales.")        
+        
+        print("Contraseña validada correctamente, continuando...")
+
+        # --- STAGE 2: Ingresar codigo OTP ---
         WebDriverWait(browser, 20).until(
             EC.presence_of_element_located((By.ID, "inputOtp"))
         )
@@ -192,22 +207,32 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
             EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Acceder')]"))
         )
         acceder_button_stage2.click()
-        print("Button 'Access' from stage 2 pressed. Login completed.")
+        print("Button 'Access' from stage 2 (OTP) pressed.")
         
+        # VALIDAR STAGE 2: OTP correcto?
+        time.sleep(3)
+        error_otp = browser.find_elements(By.XPATH, 
+            "//div[contains(text(), 'OTP ingresado no es válido')]"
+            " | //div[contains(text(), 'El OTP ingresado no es válido')]"
+            " | //div[contains(text(), 'intentos fallidos')]"
+            " | //div[contains(text(), 'código incorrecto')]"
+        )
+        
+        if error_otp and len(error_otp) > 0:
+            raise Exception("Código OTP inválido. Verifique el código de 6 dígitos en su aplicación autenticadora.")
+        
+        print("OTP validado correctamente, continuando...")
+
         # --- STAGE 3: Loop for each file ---
         if files_to_upload:
             for i, file_path in enumerate(files_to_upload):
                 
                 original_filename = os.path.basename(file_path)
 
-                    # AGREGAR ESTA LÍNEA - reportar inicio del archivo
+                # Reportar inicio del archivo
                 if hasattr(firmador_automation, 'progress_callback'):
                     firmador_automation.progress_callback(i, len(files_to_upload), original_filename, 
                                                         f'Procesando {original_filename}...')
-                    
-                # if "_firmado" in original_filename.lower():
-                #     print(f"Skipping {original_filename}. It appears to be already signed.")
-                #     continue
                 
                 print(f"\nProcessing file: {file_path}")
 
@@ -258,6 +283,7 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
                     WebDriverWait(browser, 10).until(
                         EC.presence_of_element_located((By.XPATH, "//input[@type='file']"))
                     )
+                    
                 except TimeoutException:
                     # Verificar si es por pérdida de conexión
                     if not check_internet_connection():
@@ -281,7 +307,8 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
         
     except Exception as e:
         print(f"An unexpected general error occurred: {e}")
-        messagebox.showerror("Error", f"An error occurred during automation: {e}")
+        raise e
+        
     finally:
         if browser:
             browser.quit()
