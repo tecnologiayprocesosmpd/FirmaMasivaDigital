@@ -133,7 +133,7 @@ def firmador_automation_wrapper(cuit, password, code, pin, file_paths, session_i
         for file_path in file_paths:
             filename = os.path.basename(file_path)
             file_size = os.path.getsize(file_path) if os.path.exists(file_path) else None
-            create_processed_file(session_id, filename, file_size)
+            create_processed_file(session_id, filename, file_size, cuit)
 
        # Llamar UNA SOLA VEZ con todos los archivos
         message = f'Iniciando proceso de firma para {total_files} archivos'
@@ -358,6 +358,24 @@ def cleanup_session(session_id):
         del progress_data[session_id]
         return jsonify({"message": "Sesión limpiada"}), 200
     return jsonify({"message": "Sesión no encontrada"}), 404
+
+@app.route('/reset', methods=['POST'])
+def reset_system():
+    """Limpia el sistema completamente para iniciar un nuevo proceso"""
+    try:
+        # Limpiar diccionario de progreso en memoria
+        progress_data.clear()
+        
+        return jsonify({
+            "success": True,
+            "message": "Sistema reiniciado correctamente"
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 @app.route('/abrir-carpeta', methods=['POST'])
 def abrir_carpeta():
