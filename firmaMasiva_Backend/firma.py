@@ -12,12 +12,11 @@ import os
 import glob
 import time
 import requests
-import socket
 
 # Variable global for selected files
 selected_files = []
 
-socket.setdefaulttimeout(5) 
+
 def select_files():
     """Opens a dialog for the user to select PDF files and shows them in the console."""
     global selected_files
@@ -88,7 +87,7 @@ def create_login_window():
 
         automation_thread = threading.Thread(
             target=firmador_automation,
-            args=(cuit, password, code, pin, selected_files, user_path, None)
+            args=(cuit, password, code, pin, selected_files, user_path)
         )
         automation_thread.start()
 
@@ -137,7 +136,7 @@ def wait_for_download_and_rename(download_dir, new_filename):
         
     raise TimeoutException("The file did not download in time.")
 
-def firmador_automation(cuit, password, code, pin, files_to_upload, user_path, monitor=None):
+def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
     """
     Automates the login and signing process on the firmar.gob.ar page.
     """
@@ -160,12 +159,9 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path, m
     
     service = Service(ChromeDriverManager().install())
     browser = None
+    
     try:
         browser = webdriver.Chrome(service=service, options=options)
-        # 3. Reducir el tiempo de espera implícito de Selenium
-        browser.set_page_load_timeout(15) # Tiempo máximo que espera Selenium para cargar la página
-        browser.set_script_timeout(15)   # Tiempo máximo que espera un script
-
         browser.get("https://firmar.gob.ar/firmador/#/")
         
         # --- STAGE 1: Login with CUIT and Password ---
@@ -184,7 +180,21 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path, m
         acceder_button_stage1.click()
         print("Button 'Access' from stage 1 pressed.")
         
-        # --- STAGE 2: Enter Code ---
+     # Validar Stage 1
+        time.sleep(3)
+        error_password = browser.find_elements(By.XPATH, 
+            "//div[contains(text(), 'intentos fallidos')]"
+            " | //span[contains(text(), 'incorrectos')]"
+        )
+
+        print(f"DEBUG: Encontrados {len(error_password)} elementos de error")  # ← AGREGAR
+        if error_password and len(error_password) > 0:
+            print("DEBUG: Contraseña incorrecta detectada, lanzando excepción")  # ← AGREGAR
+            raise Exception("Usuario o contraseña incorrectos. Verifique sus credenciales.")        
+        
+        print("Contraseña validada correctamente, continuando...")
+
+        # --- STAGE 2: Ingresar codigo OTP ---
         WebDriverWait(browser, 20).until(
             EC.presence_of_element_located((By.ID, "inputOtp"))
         )
@@ -197,97 +207,124 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path, m
             EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Acceder')]"))
         )
         acceder_button_stage2.click()
-        print("Button 'Access' from stage 2 pressed. Login completed.")
+        print("Button 'Access' from stage 2 (OTP) pressed.")
         
+        # VALIDAR STAGE 2: OTP correcto?
+        time.sleep(3)
+        error_otp = browser.find_elements(By.XPATH, 
+            "//div[contains(text(), 'OTP ingresado no es válido')]"
+            " | //div[contains(text(), 'El OTP ingresado no es válido')]"
+            " | //div[contains(text(), 'intentos fallidos')]"
+            " | //div[contains(text(), 'código incorrecto')]"
+        )
+        
+        if error_otp and len(error_otp) > 0:
+            raise Exception("Código OTP inválido. Verifique el código de 6 dígitos en su aplicación autenticadora.")
+        
+        print("OTP validado correctamente, continuando...")
+
         # --- STAGE 3: Loop for each file ---
         if files_to_upload:
             for i, file_path in enumerate(files_to_upload):
                 
                 original_filename = os.path.basename(file_path)
 
-                    # AGREGAR ESTA LÍNEA - reportar inicio del archivo
+                # Reportar inicio del archivo
                 if hasattr(firmador_automation, 'progress_callback'):
                     firmador_automation.progress_callback(i, len(files_to_upload), original_filename, 
                                                         f'Procesando {original_filename}...')
-                    
-                # if "_firmado" in original_filename.lower():
-                #     print(f"Skipping {original_filename}. It appears to be already signed.")
-                #     continue
                 
                 print(f"\nProcessing file: {file_path}")
 
-                if monitor and monitor.connection_lost:
-                    # Si el monitor falló, lanzamos el error antes de bloquearnos.
-                    raise Exception("CONEXIÓN PERDIDA: Proceso detenido por el monitor de red.")
-
                 try:
-                    # Chequeo rápido antes de la primera espera (login)
-                    if monitor and monitor.connection_lost:
-                        raise Exception("CONEXIÓN PERDIDA: Proceso detenido por el monitor de red.")
-                        
+                    if not check_internet_connection():
+                        raise requests.ConnectionError("Conexión a internet interrumpida.")
+
                     file_uploader = WebDriverWait(browser, 20).until(
                         EC.presence_of_element_located((By.XPATH, "//input[@type='file']"))
                     )
-                    # ...
                     
-                    # Chequeo rápido antes del click de firma
-                    if monitor and monitor.connection_lost:
-                        raise Exception("CONEXIÓN PERDIDA: Proceso detenido por el monitor de red.")
+                    file_uploader.send_keys(file_path)
+                    print("File attached.")
+
+                    pin_input = WebDriverWait(browser, 15).until(
+                        EC.presence_of_element_located((By.ID, "inputPin"))
+                    )
+                    
+                    pin_input.send_keys(pin)
+                    print("PIN entered.")
+                    
                     firmar_button = WebDriverWait(browser, 20).until(
                         EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Firmar')]"))
                     )
                     firmar_button.click()
-                    
-                    # Chequeo rápido antes de la espera de descarga
-                    if monitor and monitor.connection_lost:
-                        raise Exception("CONEXIÓN PERDIDA: Proceso detenido por el monitor de red.")
+                    print("Button 'Sign' pressed.")
+                    time.sleep(1)
+
                     descargar_button = WebDriverWait(browser, 30).until(
                         EC.element_to_be_clickable((By.XPATH, "//a[contains(., 'Descargar documento')]"))
                     ) 
-
-                    # ... (resto del código) ...
-
-                except TimeoutException as e:
-                    # Mantenemos tu lógica existente, pero ahora el monitor es más rápido
-                    if not check_internet_connection() or (monitor and monitor.connection_lost):
-                        raise Exception("CONEXIÓN PERDIDA: Se perdió la conexión durante la espera de un elemento.")
-                    # ...
-
-                except WebDriverException as e:
-                    if not check_internet_connection() or (monitor and monitor.connection_lost):
-                        raise Exception("CONEXIÓN PERDIDA: El navegador perdió la conexión.")
-                # ...
-
-
-                    # Si hay conexión, fue un error de WebDriver diferente, lo registramos y continuamos
-                    print(f"WebDriver error while processing {original_filename}: {e}")
-                    continue
                     
-                except Exception as e:
-                    # Para cualquier otro error inesperado, lo lanzamos para que lo maneje el wrapper.
-                    raise e # Propaga cualquier otra excepción.
+                    # New filename with potential counter
+                    base_name, file_extension = os.path.splitext(original_filename)
+                    new_filename = get_next_filename(download_dir, base_name, file_extension)
+                    
+                    print("Starting download...")
+                    descargar_button.click()
 
+                    wait_for_download_and_rename(download_dir, new_filename)
+                    
+                    print(f"File {original_filename} renamed to {new_filename} and saved in {download_dir}")
+
+                    if hasattr(firmador_automation, 'progress_callback'):
+                        firmador_automation.progress_callback(i + 1, len(files_to_upload), original_filename, 
+                                                        f'{original_filename} completado')
+                    
+                    # Return to the upload screen for the next file
+                    browser.back()
+                    time.sleep(1)
+                    WebDriverWait(browser, 10).until(
+                        EC.presence_of_element_located((By.XPATH, "//input[@type='file']"))
+                    )
+                    
+                except TimeoutException:
+                    # Verificar si es por pérdida de conexión
+                    if not check_internet_connection():
+                        print(f"CONEXIÓN PERDIDA en archivo {i+1}")
+                        messagebox.showerror("Conexión Perdida", 
+                                        f"Se perdió la conexión en el archivo {i+1} de {len(files_to_upload)}.\n"
+                                        f"Reinicie la aplicación y vuelva a cargar los PDFs.")
+                        return
+                    
+                    print(f"Timeout error while processing {original_filename}. Continuing with the next one.")
+                    continue     
+                
+                except Exception as e:
+                    print(f"An unexpected error occurred while processing {original_filename}: {e}")
+                    continue
+            
             print("Process completed. Closing browser in 3 seconds...")
             time.sleep(1)
         else:
             print("No files were selected to attach. Signing process skipped.")
- 
+        
     except Exception as e:
         print(f"An unexpected general error occurred: {e}")
-        messagebox.showerror("Error", f"An error occurred during automation: {e}")
+        raise e
+        
     finally:
         if browser:
             browser.quit()
 
 def check_internet_connection():
-    """Verifica si hay conexión al sitio de firma usando requests, con timeout bajo."""
+    """Verifica si hay conexión a internet y al sitio de firma"""
     try:
-        # 💥 CLAVE: Reducir el timeout a 3 segundos para que falle rápido.
-        requests.head("https://firmar.gob.ar", timeout=3) 
-        return True
+        # Intenta un HEAD request al sitio de firma con un timeout
+        response = requests.head("https://firmar.gob.ar", timeout=10)
+        # Una respuesta 200/300/400/500 indica que se llegó al servidor
+        return True # Simplemente verifica que la conexión a nivel HTTP sea posible
     except (requests.ConnectionError, requests.Timeout):
         return False
-    except Exception:
-        return False
+
 if __name__ == "__main__":
     create_login_window()

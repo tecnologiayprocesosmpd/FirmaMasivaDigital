@@ -8,19 +8,11 @@ import subprocess
 import platform
 import shutil
 import socket
-import requests
-import psycopg2 
-import getpass
-from threading import Thread, Event 
+import time
 
 # Importar desde tus archivos
 from firma import firmador_automation
 from conexionPosgre import validate_user, create_session, update_session_progress, complete_session, log_activity, create_processed_file, complete_processed_file
-
-# Define tu excepción para la pérdida de conexión
-class NoInternetConnectionError(Exception):
-    """Excepción personalizada para indicar la pérdida de conexión a internet."""
-    pass
 
 app = Flask(__name__)
 CORS(app)
@@ -43,7 +35,29 @@ def update_progress(session_id, current, total, current_file, message, status):
         if status in ['completed', 'error']:
             complete_session(session_id, status, message)
     except Exception as e:
-        print(f"Error actualizando BD: {e}")
+        if not check_internet_connection():
+            # Si no hay internet, establecemos el mensaje de error amigable
+            friendly_message = "Error de conexión a internet. Se perdió la conexión al intentar guardar el progreso."
+            
+            # Actualizamos el progreso local con el mensaje amigable (la BD no se actualizará)
+            if session_id in progress_data:
+                progress_data[session_id] = {
+                    'current': current,
+                    'total': total,
+                    'status': 'error', # Cambia el estado a error
+                    'current_file': current_file,
+                    'message': friendly_message
+                }
+            
+            print(f"ERROR: No se pudo actualizar la BD, se detectó pérdida de conexión a internet. Mensaje: {friendly_message}")
+            
+            # Lanzamos una excepción para detener el proceso en el hilo
+            raise ConnectionError(friendly_message)
+            
+        else:
+            # Si hay internet pero falla la BD, es un error de configuración de BD o servidor
+            print(f"Error crítico actualizando BD, pero hay internet: {e}")
+            raise Exception(f"Error crítico en la base de datos: {str(e)}")
 
 def create_user_directory(path):
     """Crea el directorio del usuario si no existe."""
@@ -55,85 +69,23 @@ def create_user_directory(path):
     except Exception as e:
         return False, f"Error creando directorio: {str(e)}"
 
-def check_internet_connection(timeout=3, raise_exception=False):
-    """Verifica la conexión a internet intentando conectar a Google."""
-    try:
-        # Usamos requests.head para una solicitud más rápida.
-        # Intentamos un HEAD request al sitio de firma, que es el recurso clave
-        requests.head("https://firmar.gob.ar", timeout=5) # Reducimos el timeout a 5 segundos
-        return True
-    except (requests.ConnectionError, requests.Timeout):
-        return False
-    except Exception: # Captura otros posibles errores de red/socket
-        return False
-
-
-def check_connection_status():
-    """Verifica el estado de la conexión a internet y la BD (si se puede)."""
-    if not check_internet_connection():
-        raise NoInternetConnectionError("Se perdió la conexión a Internet durante el proceso.")
-    # Puedes agregar aquí un chequeo simple a la BD si es necesario
-    # try:
-    #     some_db_check_function()
-    # except Exception:
-    #     raise Exception("Se perdió la conexión con la base de datos.")
-
-class ConnectionMonitor(Thread):
-    def __init__(self, session_id, interval=5):
-        super().__init__()
-        self.session_id = session_id
-        self.interval = interval
-        self.stop_event = Event()
-        self.connection_lost = False
-
-    def run(self):
-        # Monitorear después de un pequeño retraso para asegurar que Selenium arrancó
-        time.sleep(self.interval) 
-        
-        while not self.stop_event.is_set():
-            if not check_internet_connection():
-                self.connection_lost = True
-                # Notificar el error en el progreso
-                update_progress(
-                    self.session_id, 
-                    progress_data[self.session_id]['current'], 
-                    progress_data[self.session_id]['total'], 
-                    progress_data[self.session_id]['current_file'], 
-                    'CONEXIÓN PERDIDA - Detectado por monitor. Intentando detener proceso.', 
-                    'error'
-                )
-                self.stop_event.set() # Detiene el propio monitor
-                break
-            
-            # Espera activa: si el evento se detiene (proceso terminó), salimos.
-            self.stop_event.wait(self.interval) 
-
-    def stop(self):
-        self.stop_event.set()
-
 def firmador_automation_wrapper(cuit, password, code, pin, file_paths, session_id, user_data):
     """
     Wrapper que ejecuta la función de firma y maneja las actualizaciones de progreso.
     """
-    # Capturar información del sistema
-    hostname = socket.gethostname()
-    username = getpass.getuser() 
-    # Log con información real del sistema
-    log_activity(session_id, 'INFO', f'Proceso iniciado por {username} desde {hostname}')
-
     temp_dir = os.path.dirname(file_paths[0]) if file_paths else None
-
-    monitor = ConnectionMonitor(session_id)
-    monitor.start()
     
     try:
+        if not check_internet_connection():
+            raise Exception("No hay conexión a internet. Verifique su red.")
+            
         total_files = len(file_paths)
         update_progress(session_id, 0, total_files, '', 'Iniciando proceso de firma...', 'initializing')
         
         for file_path in file_paths:
             filename = os.path.basename(file_path)
             file_size = os.path.getsize(file_path) if os.path.exists(file_path) else None
-            create_processed_file(session_id, filename, file_size, cuit)
+            create_processed_file(session_id, filename, file_size)
 
        # Llamar UNA SOLA VEZ con todos los archivos
         message = f'Iniciando proceso de firma para {total_files} archivos'
@@ -144,7 +96,7 @@ def firmador_automation_wrapper(cuit, password, code, pin, file_paths, session_i
     
         firmador_automation.progress_callback = progress_callback
         
-        firmador_automation(cuit, password, code, pin, file_paths, user_data['path_carpetas'], monitor)
+        firmador_automation(cuit, password, code, pin, file_paths, user_data['path_carpetas'])
 
         # Marcar todos como completados al final
         for file_path in file_paths:
@@ -155,29 +107,30 @@ def firmador_automation_wrapper(cuit, password, code, pin, file_paths, session_i
         message = f'Proceso completado exitosamente. Archivos guardados en {user_data["path_carpetas"]}'
         update_progress(session_id, total_files, total_files, '', message, 'completed')
 
-    except NoInternetConnectionError: 
-        error_message = '¡CONEXIÓN PERDIDA! Se interrumpió la conexión a Internet o al sitio de firma.'
+    except ConnectionError as e:
+        # Error específico lanzado por update_progress cuando se detecta pérdida de internet
+        error_message = str(e)
         
-        update_progress(session_id, 0, len(file_paths), '', error_message, 'error')
+        # Ya se actualizó progress_data dentro de update_progress, pero nos aseguramos del log
+        log_activity(session_id, 'ERROR', error_message)
+        
+        # Intentar completar la sesión en la BD, aunque pueda fallar si la conexión sigue abajo
         try:
-            log_activity(session_id, 'FATAL', error_message)
+            complete_session(session_id, 'error', error_message)
         except:
-            print("Fallo al registrar actividad de conexión en BD, continuando...")
-    
+            pass
+            
     except Exception as e:
-        # ... (manejo de errores existente) ...
-        
-        # 💥 CLAVE: Si el monitor detectó el error, lo sobreescribimos.
-        if monitor.connection_lost:
-            error_message = '¡CONEXIÓN PERDIDA! El monitor de red detuvo el proceso.'
-            update_progress(session_id, 0, len(file_paths), '', error_message, 'error')
-            # ... (manejo de log y BD) ...
+        # Error general (código incorrecto, timeout de Selenium, error de ruta, etc.)
+        error_message = f'Error en el proceso de firma: {str(e)}'
+        update_progress(session_id, 0, len(file_paths), '', error_message, 'error')
+        log_activity(session_id, 'ERROR', error_message)
         
     finally:
-        # --- Nuevo: Detener y limpiar el monitor ---
-        monitor.stop()
-        monitor.join() 
-        # ... (limpieza de directorio temporal) ...
+        # Limpiar el directorio temporal al finalizar, con o sin error.
+        if temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+
 @app.route('/validate-user', methods=['POST'])
 def validate_user_endpoint():
     """Endpoint para validar si un usuario puede usar el sistema."""
@@ -256,11 +209,6 @@ def handle_firmar_request():
             return jsonify({
                 "message": f"Error preparando directorio del usuario: {directory_message}"
             }), 500
-        
-        if not check_internet_connection():
-            return jsonify({
-                "message": "Sin conexión a internet. Revisa tu red e inténtalo de nuevo."
-            }), 503
 
         create_session(session_id, cuit, user_data['responsable'], user_data['path_carpetas'], len(uploaded_files))
         
@@ -278,20 +226,6 @@ def handle_firmar_request():
         for file in uploaded_files:
             if not file.filename.lower().endswith('.pdf'):
                 return jsonify({"message": f"El archivo {file.filename} no es un PDF válido."}), 400
-            original_filename = file.filename
-            
-            try:
-                # Decodificar el nombre de archivo (comúnmente Latin-1 en Windows)
-                if isinstance(original_filename, bytes):
-                    filename = original_filename.decode('latin-1')
-                else:
-                    filename = original_filename
-            except Exception:
-                # Si falla, forzar un nombre ASCII seguro
-                filename = original_filename.encode('ascii', 'ignore').decode('ascii')
-            
-            # Reemplazar caracteres no permitidos en el path
-            safe_filename = filename.replace(':', '_').replace('/', '_').replace('\\', '_')
             
             file_path = os.path.join(temp_dir, file.filename)
             file.save(file_path)
@@ -312,28 +246,14 @@ def handle_firmar_request():
         }), 202
         
     except Exception as e:
-        # Aquí capturas el error de codificación si ocurre después de la verificación.
-        # Es mejor asegurar que el mensaje de error sea seguro (solo ASCII).
-        
-        # Manejo más seguro del error
-        raw_message = str(e)
-        
-        # Intentamos decodificar el mensaje de error de forma segura antes de incluirlo en el JSON
-        try:
-            # Intentar decodificar el error de forma segura (ignora los bytes malos)
-            safe_message = raw_message.encode('latin-1', 'replace').decode('utf-8', 'ignore')
-            message = f"Error al iniciar el proceso: {safe_message}"
-        except:
-            # En caso de que falle la decodificación de seguridad, usar un mensaje simple
-            message = "Error al iniciar el proceso: Falla de codificación interna (revisa el log)."
-
-        # Si se pudo obtener una ID, actualizamos el estado en la BD
-        if session_id:
+        message = f"Error al iniciar el proceso: {str(e)}"
+        if session_id and session_id in progress_data:
+            update_progress(session_id, 0, 0, '', message, 'error')
+        elif session_id:
             try:
                 complete_session(session_id, 'error', message)
             except:
-                pass 
-                    
+                pass
         return jsonify({"message": message}), 500
 
 @app.route('/progress/<session_id>')
@@ -358,24 +278,6 @@ def cleanup_session(session_id):
         del progress_data[session_id]
         return jsonify({"message": "Sesión limpiada"}), 200
     return jsonify({"message": "Sesión no encontrada"}), 404
-
-@app.route('/reset', methods=['POST'])
-def reset_system():
-    """Limpia el sistema completamente para iniciar un nuevo proceso"""
-    try:
-        # Limpiar diccionario de progreso en memoria
-        progress_data.clear()
-        
-        return jsonify({
-            "success": True,
-            "message": "Sistema reiniciado correctamente"
-        }), 200
-        
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
 
 @app.route('/abrir-carpeta', methods=['POST'])
 def abrir_carpeta():
@@ -427,10 +329,14 @@ def abrir_carpeta():
             "error": f"Error inesperado: {str(e)}"
         }), 500
 
-# Mantenemos tu excepción personalizada
-class NoInternetConnectionError(Exception):
-    """Excepción personalizada para indicar la pérdida de conexión a internet."""
-    pass
+def check_internet_connection(timeout=3):
+    """Verifica la conexión a internet intentando conectar a Google."""
+    try:
+        socket.create_connection(("www.google.com", 80), timeout)
+        return True
+    except OSError:
+        pass
+    return False
 
 if __name__ == '__main__':
     print("Iniciando servidor Flask...")
