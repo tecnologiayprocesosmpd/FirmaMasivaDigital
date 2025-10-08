@@ -136,6 +136,36 @@ def wait_for_download_and_rename(download_dir, new_filename):
         
     raise TimeoutException("The file did not download in time.")
 
+def check_internal_error(browser):
+    """Verifica si el error de 'Error interno, contactese con el administrador' (sesión rota) está presente."""
+    try:
+        # XPATH que busca el div de error con el texto y la clase 'alert-danger'
+        error_element = browser.find_element(
+            By.XPATH, 
+            "//div[contains(@class, 'alert-danger') and contains(text(), 'Error interno, contactese con el administrador')]"
+        )
+        # Solo retorna True si el elemento existe Y está visible en la página
+        if error_element.is_displayed():
+            return True
+    except:
+        # Si la búsqueda falla (elemento no encontrado), no hay error.
+        pass
+    return False
+
+def check_pin_error(browser):
+    """Verifica si el error de 'Error en el PIN de firma ingresado' está presente."""
+    try:
+        # XPATH que busca el div de error con el texto de PIN incorrecto
+        error_element = browser.find_element(
+            By.XPATH, 
+            "//div[contains(@class, 'alert-danger') and contains(text(), 'Error en el PIN de firma ingresado.')]"
+        )
+        if error_element.is_displayed():
+            return True
+    except:
+        pass
+    return False
+
 def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
     """
     Automates the login and signing process on the firmar.gob.ar page.
@@ -220,6 +250,9 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
         
         if error_otp and len(error_otp) > 0:
             raise Exception("Código OTP inválido. Verifique el código de 6 dígitos en su aplicación autenticadora.")
+        if check_internal_error(browser):
+            raise Exception("La página de firma reportó un Error Interno después del acceso. La sesión pudo haber expirado. Intente de nuevo.")
+
         
         print("OTP validado correctamente, continuando...")
 
@@ -261,6 +294,17 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
                     print("Button 'Sign' pressed.")
                     time.sleep(1)
 
+                        # 1. Verificar error de PIN (el más específico)
+                    if check_pin_error(browser):
+                        # Este error detiene el proceso inmediatamente
+                        raise Exception("Error Crítico: PIN de firma incorrecto. Verifique el PIN e intente nuevamente.")
+                    
+                    # 2. Verificar error de Sesión Rota (por límite de archivos o timeout)
+                    if check_internal_error(browser):
+                        # Este error detiene el proceso y te da contexto
+                        raise Exception(f"Se rompió la sesión de firma en el archivo {i+1} de {len(files_to_upload)} ({original_filename}). El sitio web reportó un error interno. Por favor, reinicie e intente con los archivos restantes.")
+
+
                     descargar_button = WebDriverWait(browser, 30).until(
                         EC.element_to_be_clickable((By.XPATH, "//a[contains(., 'Descargar documento')]"))
                     ) 
@@ -272,15 +316,20 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
                     print("Starting download...")
                     descargar_button.click()
 
-                    wait_for_download_and_rename(download_dir, new_filename)
-                    
-                    print(f"File {original_filename} renamed to {new_filename} and saved in {download_dir}")
 
-                    if hasattr(firmador_automation, 'progress_callback'):
-                        firmador_automation.progress_callback(i + 1, len(files_to_upload), original_filename, 
-                                                        f'{original_filename} completado')
+                    wait_for_download_and_rename(download_dir, new_filename)
+                    print(f"File {original_filename} renamed to {new_filename} and saved in {download_dir}")
                     
-                    # Return to the upload screen for the next file
+                    # Reportar progreso solo si la descarga fue exitosa
+                    if hasattr(firmador_automation, 'progress_callback'):
+                        firmador_automation.progress_callback(
+                            i + 1, 
+                            len(files_to_upload), 
+                            original_filename, 
+                            f'Archivo {i+1} de {len(files_to_upload)} completado: {original_filename}'
+                        )
+                    
+                    # Volver a la pantalla de carga
                     browser.back()
                     time.sleep(1)
                     WebDriverWait(browser, 10).until(
@@ -288,25 +337,14 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
                     )
                     
                 except TimeoutException:
-                    # Verificar si es por pérdida de conexión
-                    if not check_internet_connection():
-                        print(f"CONEXIÓN PERDIDA en archivo {i+1}")
-                        messagebox.showerror("Conexión Perdida", 
-                                        f"Se perdió la conexión en el archivo {i+1} de {len(files_to_upload)}.\n"
-                                        f"Reinicie la aplicación y vuelva a cargar los PDFs.")
-                        return
-                    
-                    print(f"Timeout error while processing {original_filename}. Continuing with the next one.")
-                    continue     
-                
-                except Exception as e:
-                    print(f"An unexpected error occurred while processing {original_filename}: {e}")
-                    continue
+                    print(f"Timeout en descarga de {original_filename}. Continuando con el siguiente.")
+                    # NO reportar progreso si falló
+                    # NO registrar en BD como exitoso
+                    browser.back()  # Volver para el siguiente archivo
+                    time.sleep(1)
+                    continue  # Saltar al siguiente archivo
             
-            print("Process completed. Closing browser in 3 seconds...")
-            time.sleep(1)
-        else:
-            print("No files were selected to attach. Signing process skipped.")
+            
         
     except Exception as e:
         print(f"An unexpected general error occurred: {e}")

@@ -74,6 +74,7 @@ def firmador_automation_wrapper(cuit, password, code, pin, file_paths, session_i
     Wrapper que ejecuta la función de firma y maneja las actualizaciones de progreso.
     """
     temp_dir = os.path.dirname(file_paths[0]) if file_paths else None
+    archivos_exitosos = 0  # Contador de archivos realmente completados
     
     try:
         if not check_internet_connection():
@@ -82,20 +83,27 @@ def firmador_automation_wrapper(cuit, password, code, pin, file_paths, session_i
         total_files = len(file_paths)
         update_progress(session_id, 0, total_files, '', 'Iniciando proceso de firma...', 'initializing')
         
+        # Registrar archivos en BD
         for file_path in file_paths:
             filename = os.path.basename(file_path)
             file_size = os.path.getsize(file_path) if os.path.exists(file_path) else None
-            create_processed_file(session_id, filename, file_size)
+            create_processed_file(session_id, filename, file_size, cuit)
 
-       # Llamar UNA SOLA VEZ con todos los archivos
+        # Llamar UNA SOLA VEZ con todos los archivos
         message = f'Iniciando proceso de firma para {total_files} archivos'
         update_progress(session_id, 0, total_files, '', message, 'processing')
-     # se agrega estas lineas para reportar progreso
+        
+        # se agrega estas lineas para reportar progreso
         def progress_callback(current, total, filename, message):
+            nonlocal archivos_exitosos
+            # Contar archivos exitosos cuando se completan
+            if 'completado' in message.lower():
+                archivos_exitosos = current
             update_progress(session_id, current, total, filename, message, 'processing')
     
         firmador_automation.progress_callback = progress_callback
         
+        # Ejecutar proceso de firma
         firmador_automation(cuit, password, code, pin, file_paths, user_data['path_carpetas'])
 
         # Marcar todos como completados al final
@@ -104,27 +112,51 @@ def firmador_automation_wrapper(cuit, password, code, pin, file_paths, session_i
             complete_processed_file(session_id, current_filename, 'completed')
 
         # Actualización final de progreso
-        message = f'Proceso completado exitosamente. Archivos guardados en {user_data["path_carpetas"]}'
+        message = f'Proceso completado exitosamente. {archivos_exitosos} archivos guardados en {user_data["path_carpetas"]}'
         update_progress(session_id, total_files, total_files, '', message, 'completed')
+        
+        # Log de éxito
+        log_activity(session_id, 'SUCCESS', f'Proceso completado: {archivos_exitosos}/{total_files} archivos')
 
     except ConnectionError as e:
         # Error específico lanzado por update_progress cuando se detecta pérdida de internet
         error_message = str(e)
         
+        # Mensaje con contador de exitosos
+        if archivos_exitosos > 0:
+            final_message = f'Conexión perdida. Se completaron {archivos_exitosos} de {len(file_paths)} archivos. {error_message}'
+        else:
+            final_message = error_message
+        
+        update_progress(session_id, archivos_exitosos, len(file_paths), '', final_message, 'error')
+        
         # Ya se actualizó progress_data dentro de update_progress, pero nos aseguramos del log
-        log_activity(session_id, 'ERROR', error_message)
+        log_activity(session_id, 'ERROR', f'Conexión perdida en archivo {archivos_exitosos + 1}/{len(file_paths)}. {error_message}')
         
         # Intentar completar la sesión en la BD, aunque pueda fallar si la conexión sigue abajo
         try:
-            complete_session(session_id, 'error', error_message)
+            complete_session(session_id, 'error', final_message)
         except:
             pass
             
     except Exception as e:
         # Error general (código incorrecto, timeout de Selenium, error de ruta, etc.)
-        error_message = f'Error en el proceso de firma: {str(e)}'
-        update_progress(session_id, 0, len(file_paths), '', error_message, 'error')
-        log_activity(session_id, 'ERROR', error_message)
+        error_message = str(e)
+        
+        # Determinar cuántos se procesaron exitosamente
+        if archivos_exitosos > 0:
+            final_message = f'Proceso interrumpido. Se completaron {archivos_exitosos} de {len(file_paths)} archivos. Error: {error_message}'
+        else:
+            final_message = f'Error al iniciar el proceso: {error_message}'
+        
+        update_progress(session_id, archivos_exitosos, len(file_paths), '', final_message, 'error')
+        log_activity(session_id, 'ERROR', f'Error en archivo {archivos_exitosos + 1}/{len(file_paths)}. {error_message}')
+        
+        # Intentar completar sesión en BD
+        try:
+            complete_session(session_id, 'error', final_message)
+        except:
+            pass
         
     finally:
         # Limpiar el directorio temporal al finalizar, con o sin error.
