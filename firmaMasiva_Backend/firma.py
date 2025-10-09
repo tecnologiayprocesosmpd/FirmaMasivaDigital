@@ -111,10 +111,7 @@ def get_next_filename(download_dir, filename_without_ext, extension):
     return new_filename
 
 def wait_for_download_and_rename(download_dir, new_filename):
-    """
-    Waits for a new file to download in the directory and then renames it.
-    """
-    timeout = 60
+    timeout = 90  # Aumentar timeout para dar tiempo al antivirus
     start_time = time.time()
     
     initial_files = set(os.listdir(download_dir))
@@ -123,16 +120,33 @@ def wait_for_download_and_rename(download_dir, new_filename):
         current_files = set(os.listdir(download_dir))
         new_files = list(current_files - initial_files)
         
-        newly_downloaded_files = [f for f in new_files if not f.endswith('.crdownload')]
+        # Buscar archivo descargado (puede tener nombres temporales)
+        newly_downloaded_files = [f for f in new_files 
+                                  if not f.endswith('.crdownload') 
+                                  and not f.endswith('.tmp')]
         
         if newly_downloaded_files:
             downloaded_file = os.path.join(download_dir, newly_downloaded_files[0])
+            target_file = os.path.join(download_dir, new_filename)
             
-            os.rename(downloaded_file, os.path.join(download_dir, new_filename))
-            print(f"Download complete. File renamed to {new_filename}.")
-            return
+            # Esperar a que el antivirus termine de escanear
+            time.sleep(3)
             
-        time.sleep(0.2)
+            # Reintentar renombrado hasta 10 veces
+            for attempt in range(10):
+                try:
+                    if os.path.exists(downloaded_file):
+                        os.rename(downloaded_file, target_file)
+                        print(f"Download complete. File renamed to {new_filename}.")
+                        return
+                except (PermissionError, OSError) as e:
+                    if attempt < 9:
+                        print(f"File locked by antivirus, retrying... ({attempt + 1}/10)")
+                        time.sleep(3)  # Esperar más tiempo
+                    else:
+                        raise Exception(f"Archivo bloqueado por antivirus: {str(e)}")
+            
+        time.sleep(0.5)
         
     raise TimeoutException("The file did not download in time.")
 
@@ -184,7 +198,7 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
         "download.default_directory": download_dir,
         "download.prompt_for_download": False,
         "download.directory_upgrade": True,
-        "safebrowsing.enabled": True
+        "safebrowsing.enabled": False #deshabilita la verificacion del antivirus
     })
     
     service = Service(ChromeDriverManager().install())
@@ -255,72 +269,102 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
 
         
         print("OTP validado correctamente, continuando...")
-
-        # --- STAGE 3: Loop for each file ---
+        
+        
+       # --- STAGE 3: Loop for each file ---
         if files_to_upload:
+            pin_validado = False  # Flag para validar PIN solo una vez
+            
             for i, file_path in enumerate(files_to_upload):
                 
                 original_filename = os.path.basename(file_path)
-
+                
+                # Limpiar caché cada 50 archivos
+                if i > 0 and i % 50 == 0:
+                    print(f"Limpiando caché del navegador en archivo {i}...")
+                    try:
+                        browser.execute_script("window.localStorage.clear();")
+                        browser.execute_script("window.sessionStorage.clear();")
+                        print("Caché limpiado exitosamente")
+                    except Exception as e:
+                        print(f"No se pudo limpiar caché: {e}")
+                
                 # Reportar inicio del archivo
                 if hasattr(firmador_automation, 'progress_callback'):
-                    firmador_automation.progress_callback(i, len(files_to_upload), original_filename, 
-                                                        f'Procesando {original_filename}...')
+                    firmador_automation.progress_callback(
+                        i, 
+                        len(files_to_upload), 
+                        original_filename, 
+                        f'Procesando {original_filename}...'
+                    )
                 
                 print(f"\nProcessing file: {file_path}")
 
                 try:
+                    # Verificar conexión
                     if not check_internet_connection():
                         raise requests.ConnectionError("Conexión a internet interrumpida.")
 
+                    # Adjuntar archivo
                     file_uploader = WebDriverWait(browser, 20).until(
                         EC.presence_of_element_located((By.XPATH, "//input[@type='file']"))
                     )
-                    
                     file_uploader.send_keys(file_path)
                     print("File attached.")
 
+                    # Ingresar PIN
                     pin_input = WebDriverWait(browser, 15).until(
                         EC.presence_of_element_located((By.ID, "inputPin"))
                     )
-                    
                     pin_input.send_keys(pin)
                     print("PIN entered.")
                     
+                    # Click en Firmar
                     firmar_button = WebDriverWait(browser, 20).until(
                         EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Firmar')]"))
                     )
                     firmar_button.click()
                     print("Button 'Sign' pressed.")
-                    time.sleep(1)
 
-                        # 1. Verificar error de PIN (el más específico)
-                    if check_pin_error(browser):
-                        # Este error detiene el proceso inmediatamente
-                        raise Exception("Error Crítico: PIN de firma incorrecto. Verifique el PIN e intente nuevamente.")
-                    
-                    # 2. Verificar error de Sesión Rota (por límite de archivos o timeout)
-                    if check_internal_error(browser):
-                        # Este error detiene el proceso y te da contexto
-                        raise Exception(f"Se rompió la sesión de firma en el archivo {i+1} de {len(files_to_upload)} ({original_filename}). El sitio web reportó un error interno. Por favor, reinicie e intente con los archivos restantes.")
+                    # Validar PIN solo en el primer archivo
+                    if not pin_validado:
+                        PIN_ERROR_MESSAGE = "Error en el PIN de firma ingresado"
+                        try:
+                            WebDriverWait(browser, 5).until(
+                                EC.presence_of_element_located(
+                                    (By.XPATH, f"//div[contains(text(), '{PIN_ERROR_MESSAGE}')]")
+                                )
+                            )
+                            raise Exception("PIN incorrecto. Verifique su PIN de seguridad de FirmAR.gob.ar")
+                        except TimeoutException:
+                            pin_validado = True
+                            print("PIN validado correctamente - no se volverá a verificar")
+                    else:
+                        # Archivos siguientes: verificación rápida de 1 segundo
+                        time.sleep(1)
+                        error_pin = browser.find_elements(By.XPATH, 
+                            f"//div[contains(text(), '{PIN_ERROR_MESSAGE}')]")
+                        if error_pin:
+                            raise Exception("PIN incorrecto detectado inesperadamente")
 
-
+                    # Esperar botón de descarga
                     descargar_button = WebDriverWait(browser, 30).until(
                         EC.element_to_be_clickable((By.XPATH, "//a[contains(., 'Descargar documento')]"))
-                    ) 
+                    )
                     
-                    # New filename with potential counter
+                    # Preparar nombre del archivo
                     base_name, file_extension = os.path.splitext(original_filename)
                     new_filename = get_next_filename(download_dir, base_name, file_extension)
                     
+                    # Descargar
                     print("Starting download...")
                     descargar_button.click()
 
-
+                    # Esperar y renombrar descarga
                     wait_for_download_and_rename(download_dir, new_filename)
                     print(f"File {original_filename} renamed to {new_filename} and saved in {download_dir}")
                     
-                    # Reportar progreso solo si la descarga fue exitosa
+                    # Reportar progreso exitoso
                     if hasattr(firmador_automation, 'progress_callback'):
                         firmador_automation.progress_callback(
                             i + 1, 
@@ -329,7 +373,7 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
                             f'Archivo {i+1} de {len(files_to_upload)} completado: {original_filename}'
                         )
                     
-                    # Volver a la pantalla de carga
+                    # Volver para el siguiente archivo
                     browser.back()
                     time.sleep(1)
                     WebDriverWait(browser, 10).until(
@@ -337,15 +381,33 @@ def firmador_automation(cuit, password, code, pin, files_to_upload, user_path):
                     )
                     
                 except TimeoutException:
-                    print(f"Timeout en descarga de {original_filename}. Continuando con el siguiente.")
-                    # NO reportar progreso si falló
-                    # NO registrar en BD como exitoso
-                    browser.back()  # Volver para el siguiente archivo
-                    time.sleep(1)
-                    continue  # Saltar al siguiente archivo
+                    # Verificar si es por pérdida de conexión
+                    if not check_internet_connection():
+                        print(f"CONEXIÓN PERDIDA en archivo {i+1}")
+                        raise Exception(f"Conexión perdida en archivo {i+1}/{len(files_to_upload)}")
+                    
+                    print(f"Timeout en procesamiento de {original_filename}. Continuando...")
+                    try:
+                        browser.back()
+                        time.sleep(1)
+                    except:
+                        pass
+                    continue
+                
+                except Exception as e:
+                    # Si es error de PIN, detener todo
+                    if "PIN incorrecto" in str(e):
+                        raise e
+                    print(f"Error inesperado en {original_filename}: {e}")
+                    try:
+                        browser.back()
+                        time.sleep(1)
+                    except:
+                        pass
+                    continue
             
+            print("Process completed.")
             
-        
     except Exception as e:
         print(f"An unexpected general error occurred: {e}")
         raise e
